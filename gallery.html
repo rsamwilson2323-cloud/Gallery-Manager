@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Gallery Manager</title>
+
+<style>
+body{
+  margin:0;
+  font-family:Arial;
+  background:#0f172a;
+  color:white;
+}
+.box{
+  width:330px;
+  margin:80px auto;
+  background:#020617;
+  padding:25px;
+  border-radius:12px;
+}
+h2{text-align:center}
+
+input,select,button{
+  width:100%;
+  padding:10px;
+  margin:10px 0;
+  border:none;
+  border-radius:6px;
+}
+
+button{
+  background:#2563eb;
+  color:white;
+  cursor:pointer;
+}
+
+.text-btn{
+  text-align:center;
+  color:#38bdf8;
+  cursor:pointer;
+}
+
+/* ===== GALLERY ===== */
+header{
+  display:flex;
+  justify-content:space-between;
+  padding:15px;
+  background:#020617;
+}
+header button{
+  background:red;
+  width:auto;
+}
+
+.controls{
+  display:flex;
+  gap:10px;
+  padding:15px;
+}
+
+.upload label{
+  background:#2563eb;
+  padding:10px 20px;
+  border-radius:8px;
+  cursor:pointer;
+}
+.upload input{display:none}
+
+.gallery{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+  gap:15px;
+  padding:20px;
+}
+
+.card{
+  position:relative;
+}
+.card img{
+  width:100%;
+  height:200px;
+  object-fit:cover;
+  border-radius:10px;
+}
+.delete{
+  position:absolute;
+  top:8px;
+  right:8px;
+  background:red;
+  border:none;
+  color:white;
+  padding:5px 8px;
+  border-radius:50%;
+  cursor:pointer;
+}
+
+/* ===== FULLSCREEN VIEW ===== */
+#viewer{
+  display:none;
+  position:fixed;
+  top:0;left:0;
+  width:100%;height:100%;
+  background:rgba(0,0,0,0.9);
+  z-index:9999;
+  align-items:center;
+  justify-content:center;
+}
+#viewer img{
+  max-width:90%;
+  max-height:90%;
+  border-radius:10px;
+}
+#viewer span{
+  position:absolute;
+  top:20px;right:30px;
+  font-size:30px;
+  cursor:pointer;
+}
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div class="box" id="loginBox">
+<h2>LOGIN</h2>
+<input id="luser" placeholder="Username">
+<input id="lpass" type="password" placeholder="Password">
+<button onclick="login()">Login</button>
+<div class="text-btn" onclick="showRegister()">Create account</div>
+</div>
+
+<!-- REGISTER -->
+<div class="box" id="regBox" style="display:none;">
+<h2>CREATE ACCOUNT</h2>
+<input id="ruser" placeholder="Username">
+<input id="rpass" type="password" placeholder="Password">
+<button onclick="register()">Create</button>
+<div class="text-btn" onclick="showLogin()">Login</div>
+</div>
+
+<!-- GALLERY -->
+<div id="galleryPage" style="display:none;">
+<header>
+<div>📸 Gallery - <span id="userName"></span></div>
+<button onclick="logout()">Logout</button>
+</header>
+
+<div class="controls">
+<input id="folderName" placeholder="New folder">
+<button onclick="createFolder()">Create</button>
+
+<select id="folderSelect" onchange="loadImages()"></select>
+<button style="background:red" onclick="deleteFolder()">Delete Folder</button>
+</div>
+
+<div class="upload">
+<label>
+Upload Images
+<input type="file" id="fileInput" multiple accept="image/*">
+</label>
+</div>
+
+<div class="gallery" id="gallery"></div>
+</div>
+
+<!-- FULLSCREEN VIEW -->
+<div id="viewer">
+<span onclick="closeViewer()">✖</span>
+<img id="viewerImg">
+</div>
+
+<script>
+/* ===== AUTH ===== */
+let users = JSON.parse(localStorage.getItem("users")) || {};
+let currentUser = null;
+let currentFolder = null;
+
+function saveUsers(){
+  localStorage.setItem("users", JSON.stringify(users));
+}
+
+function showRegister(){
+  loginBox.style.display="none";
+  regBox.style.display="block";
+}
+function showLogin(){
+  regBox.style.display="none";
+  loginBox.style.display="block";
+}
+
+function register(){
+  if(users[ruser.value]) return alert("User exists");
+  users[ruser.value] = rpass.value;
+  saveUsers();
+  alert("Account created");
+  showLogin();
+}
+
+function login(){
+  if(users[luser.value] !== lpass.value) return alert("Invalid login");
+  currentUser = luser.value;
+  userName.innerText = currentUser;
+  loginBox.style.display="none";
+  galleryPage.style.display="block";
+  loadFolders();
+}
+
+function logout(){
+  currentUser=null;
+  galleryPage.style.display="none";
+  showLogin();
+}
+
+/* ===== INDEXEDDB ===== */
+let db;
+let req = indexedDB.open("GalleryDB",1);
+
+req.onupgradeneeded = e=>{
+  db = e.target.result;
+  db.createObjectStore("images",{keyPath:"id",autoIncrement:true});
+};
+req.onsuccess = e=> db = e.target.result;
+
+/* ===== FOLDERS ===== */
+function loadFolders(){
+  let folders = JSON.parse(localStorage.getItem("folders_"+currentUser)) || {};
+  folderSelect.innerHTML="";
+  Object.keys(folders).forEach(f=>{
+    let o=document.createElement("option");
+    o.value=f;
+    o.textContent=f;
+    folderSelect.appendChild(o);
+  });
+  if(folderSelect.value){
+    currentFolder = folderSelect.value;
+    loadImages();
+  }else{
+    gallery.innerHTML="";
+  }
+}
+
+function createFolder(){
+  if(!folderName.value) return;
+  let folders = JSON.parse(localStorage.getItem("folders_"+currentUser)) || {};
+  if(folders[folderName.value]) return alert("Folder exists");
+  folders[folderName.value] = true;
+  localStorage.setItem("folders_"+currentUser, JSON.stringify(folders));
+  folderName.value="";
+  loadFolders();
+}
+
+function deleteFolder(){
+  if(!folderSelect.value) return alert("Select folder");
+  if(!confirm("Delete selected folder and all images?")) return;
+
+  let folder = folderSelect.value;
+  let folders = JSON.parse(localStorage.getItem("folders_"+currentUser)) || {};
+  delete folders[folder];
+  localStorage.setItem("folders_"+currentUser, JSON.stringify(folders));
+
+  let tx=db.transaction("images","readwrite");
+  let store=tx.objectStore("images");
+  store.getAll().onsuccess=e=>{
+    e.target.result.forEach(i=>{
+      if(i.user===currentUser && i.folder===folder){
+        store.delete(i.id);
+      }
+    });
+  };
+
+  currentFolder=null;
+  gallery.innerHTML="";
+  loadFolders();
+}
+
+/* ===== IMAGES ===== */
+function loadImages(){
+  currentFolder = folderSelect.value;
+  if(!currentFolder) return;
+
+  let tx=db.transaction("images","readonly");
+  let store=tx.objectStore("images");
+  store.getAll().onsuccess=e=>{
+    gallery.innerHTML="";
+    e.target.result
+      .filter(i=>i.user===currentUser && i.folder===currentFolder)
+      .forEach(i=>{
+        let url=URL.createObjectURL(i.blob);
+        let card=document.createElement("div");
+        card.className="card";
+
+        let img=document.createElement("img");
+        img.src=url;
+        img.ondblclick=()=>openViewer(url);
+
+        let del=document.createElement("button");
+        del.className="delete";
+        del.textContent="✖";
+        del.onclick=()=>{
+          let tx2=db.transaction("images","readwrite");
+          tx2.objectStore("images").delete(i.id);
+          loadImages();
+        };
+
+        card.append(img,del);
+        gallery.append(card);
+      });
+  };
+}
+
+fileInput.addEventListener("change",()=>{
+  if(!folderSelect.value) return alert("Select folder");
+  let tx=db.transaction("images","readwrite");
+  let store=tx.objectStore("images");
+  [...fileInput.files].forEach(f=>{
+    store.add({user:currentUser, folder:folderSelect.value, blob:f});
+  });
+  setTimeout(loadImages,200);
+  fileInput.value="";
+});
+
+/* ===== VIEWER ===== */
+function openViewer(src){
+  viewerImg.src=src;
+  viewer.style.display="flex";
+}
+function closeViewer(){
+  viewer.style.display="none";
+}
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape") closeViewer();
+});
+</script>
+
+</body>
+</html>
